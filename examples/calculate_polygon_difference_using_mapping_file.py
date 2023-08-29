@@ -2,13 +2,16 @@
 import os
 from osgeo import ogr, osr
 
-
-def calculate_polygon_difference():
+import netCDF4 as nc
+def calculate_polygon_difference_using_mapping_file():
 
     sFilename_base = '/qfs/people/liao313/workspace/python/polygon_calculator/data/structured/198001.geojson'
     sFilename_new = '/qfs/people/liao313/workspace/python/polygon_calculator/data/unstructured/198001.geojson'
     sFilename_output_in = '/qfs/people/liao313/workspace/python/polygon_calculator/data/198001_diff.geojson'
-
+    sFilename_mapping_l2r = '/qfs/people/liao313/workspace/python/polygon_calculator/data/l2r_susquehanna_mapping.nc'
+    #read the mapping file
+    pDataset_mapping = nc.Dataset(sFilename_mapping_l2r, 'r')
+    
     #read the base file
     pDriver_geojson = ogr.GetDriverByName('GeoJSON')
     #delete if file exist
@@ -37,29 +40,15 @@ def calculate_polygon_difference():
     #do the same for the new file
     pLayer_new = pDataset_new.GetLayer()
     nFeature_new =  pLayer_new.GetFeatureCount()
+    aRunoff_base = list()
     lID_polygon = 1
     for i in range(nFeature_base):
         pFeature_base = pLayer_base.GetFeature(i)
         pGeometry_base = pFeature_base.GetGeometryRef()
         dRunoff_base = pFeature_base.GetField("qsur")
+        aRunoff_base.append(dRunoff_base)
 
-        for j in range(nFeature_new):
-            pFeature_new = pLayer_new.GetFeature(j)
-            pGeometry_new = pFeature_new.GetGeometryRef()
-            iFlag_intersect = pGeometry_new.Intersects( pGeometry_base )
-            if( iFlag_intersect == True):
-                iFlag_intersected = 1
-                pGeometry_intersect = pGeometry_new.Intersection(pGeometry_base)                     
-                pGeometrytype_intersect = pGeometry_intersect.GetGeometryName()
-                if pGeometrytype_intersect == 'POLYGON':
-                    dRunoff_new = pFeature_new.GetField("qsur")
-                    runoff_diff  = dRunoff_new - dRunoff_base
-                    pFeatureOut.SetGeometry(pGeometry_intersect)
-                    pFeatureOut.SetField("polygonid", lID_polygon)         
-                    pFeatureOut.SetField("runoff_diff", runoff_diff)    
-                      
-                    pLayerOut.CreateFeature(pFeatureOut)    
-                    lID_polygon = lID_polygon + 1
+        
     
     #close files
     pDataset_base = None
@@ -68,4 +57,4 @@ def calculate_polygon_difference():
     return None
 
 if __name__ == '__main__':
-    calculate_polygon_difference()
+    calculate_polygon_difference_using_mapping_file()
