@@ -2,18 +2,26 @@
 import os
 from osgeo import ogr, osr
 from datetime import datetime
+import importlib
+iFlag_cython = importlib.util.find_spec("cython") 
+if iFlag_cython is not None:
+    from polycal.external.tinyr import tinyr
+else:
+    import rtree
 
-def calculate_polygon_difference():
+def calculate_polygon_diff_using_cython_rtree():
     start_time = datetime.now()
+
     sFilename_base = '/qfs/people/liao313/workspace/python/polygon_calculator/data/structured/198001.geojson'
     sFilename_new = '/qfs/people/liao313/workspace/python/polygon_calculator/data/unstructured/198001.geojson'
-    sFilename_output_in = '/qfs/people/liao313/workspace/python/polygon_calculator/data/198001_diff.geojson'
+    sFilename_output_in = '/qfs/people/liao313/workspace/python/polygon_calculator/data/198001_diff_cython_rtree.geojson'
 
     #read the base file
     pDriver_geojson = ogr.GetDriverByName('GeoJSON')
     #delete if file exist
     if os.path.exists(sFilename_output_in):
         os.remove(sFilename_output_in)
+        
     pDataset_out = pDriver_geojson.CreateDataSource(sFilename_output_in)
     pSpatial_reference_gcs = osr.SpatialReference()  
     pSpatial_reference_gcs.ImportFromEPSG(4326)    # WGS84 lat/lon
@@ -25,41 +33,60 @@ def calculate_polygon_difference():
    
     pLayerDefn = pLayerOut.GetLayerDefn()
     pFeatureOut = ogr.Feature(pLayerDefn)  
+    #read the base file
 
     pDataset_base = pDriver_geojson.Open(sFilename_base, 0)
-    #read the new file
-    pDataset_new = pDriver_geojson.Open(sFilename_new, 0)
-
     #find the numebr of geometries in the base file
     pLayer_base = pDataset_base.GetLayer()
     nFeature_base = pLayer_base.GetFeatureCount()
+    
+    interleaved = True
+    index_base = tinyr.RTree(interleaved=interleaved, max_cap=5, min_cap=2)
+    aRunoff_base = list()
+    for i in range(nFeature_base):
+        lID = i 
+        pFeature_base = pLayer_base.GetFeature(i)
+        pGeometry_base = pFeature_base.GetGeometryRef()    
+        left, right, bottom, top= pGeometry_base.GetEnvelope()   
+        pBound= (left, bottom, right, top)
+        index_base.insert(lID, pBound)  #
+        dRunoff_base = pFeature_base.GetField("qsur")
+        aRunoff_base.append(dRunoff_base)
 
-    #do the same for the new file
+    #read the new file
+    pDataset_new = pDriver_geojson.Open(sFilename_new, 0)
     pLayer_new = pDataset_new.GetLayer()
     nFeature_new =  pLayer_new.GetFeatureCount()
     lID_polygon = 1
-    for i in range(nFeature_base):
-        pFeature_base = pLayer_base.GetFeature(i)
-        pGeometry_base = pFeature_base.GetGeometryRef()
-        dRunoff_base = pFeature_base.GetField("qsur")
-
-        for j in range(nFeature_new):
-            pFeature_new = pLayer_new.GetFeature(j)
-            pGeometry_new = pFeature_new.GetGeometryRef()
+    for j in range(nFeature_new):
+        lID = j
+        pFeature_new = pLayer_new.GetFeature(j)
+        pGeometry_new = pFeature_new.GetGeometryRef()                    
+        
+        left, right, bottom, top= pGeometry_new.GetEnvelope()   
+        pBound= (left, bottom, right, top)
+        #aIntersect = list(index_base.intersection(pBound))
+        aIntersect = list(index_base.search(pBound))
+        
+        dRunoff_new = pFeature_new.GetField("qsur")
+        for k in aIntersect:
+            pFeature_base = pLayer_base.GetFeature(k)
+            pGeometry_base = pFeature_base.GetGeometryRef()        
+            dRunoff_base = aRunoff_base[k]     
+            runoff_diff  = dRunoff_new - dRunoff_base
             iFlag_intersect = pGeometry_new.Intersects( pGeometry_base )
             if( iFlag_intersect == True):
-                iFlag_intersected = 1
-                pGeometry_intersect = pGeometry_new.Intersection(pGeometry_base)                     
+                pGeometry_intersect = pGeometry_new.Intersection(pGeometry_base)     
                 pGeometrytype_intersect = pGeometry_intersect.GetGeometryName()
-                if pGeometrytype_intersect == 'POLYGON':
-                    dRunoff_new = pFeature_new.GetField("qsur")
-                    runoff_diff  = dRunoff_new - dRunoff_base
+                
+                if pGeometrytype_intersect == 'POLYGON':  
                     pFeatureOut.SetGeometry(pGeometry_intersect)
                     pFeatureOut.SetField("polygonid", lID_polygon)         
                     pFeatureOut.SetField("runoff_diff", runoff_diff)    
-                      
                     pLayerOut.CreateFeature(pFeatureOut)    
                     lID_polygon = lID_polygon + 1
+                else:
+                    print('pGeometrytype_intersect:', pGeometrytype_intersect)
     
     #close files
     pDataset_base = None
@@ -73,7 +100,8 @@ def calculate_polygon_difference():
 
     min = sec / 60
     print('difference in minutes:', min)
+    
     return None
 
 if __name__ == '__main__':
-    calculate_polygon_difference()
+    calculate_polygon_diff_using_cython_rtree()

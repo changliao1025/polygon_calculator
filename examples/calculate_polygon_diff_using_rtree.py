@@ -1,10 +1,11 @@
 #import gdal 
 import os
+from datetime import datetime
 from osgeo import ogr, osr
 import rtree
 
 def calculate_polygon_diff_using_rtree():
-
+    start_time = datetime.now()
     sFilename_base = '/qfs/people/liao313/workspace/python/polygon_calculator/data/structured/198001.geojson'
     sFilename_new = '/qfs/people/liao313/workspace/python/polygon_calculator/data/unstructured/198001.geojson'
     sFilename_output_in = '/qfs/people/liao313/workspace/python/polygon_calculator/data/198001_diff_rtree.geojson'
@@ -14,6 +15,7 @@ def calculate_polygon_diff_using_rtree():
     #delete if file exist
     if os.path.exists(sFilename_output_in):
         os.remove(sFilename_output_in)
+        
     pDataset_out = pDriver_geojson.CreateDataSource(sFilename_output_in)
     pSpatial_reference_gcs = osr.SpatialReference()  
     pSpatial_reference_gcs.ImportFromEPSG(4326)    # WGS84 lat/lon
@@ -65,16 +67,29 @@ def calculate_polygon_diff_using_rtree():
             runoff_diff  = dRunoff_new - dRunoff_base
             iFlag_intersect = pGeometry_new.Intersects( pGeometry_base )
             if( iFlag_intersect == True):
-                pGeometry_intersect = pGeometry_new.Intersection(pGeometry_base)     
-                pFeatureOut.SetGeometry(pGeometry_intersect)
-                pFeatureOut.SetField("polygonid", lID_polygon)         
-                pFeatureOut.SetField("runoff_diff", runoff_diff)    
-                pLayerOut.CreateFeature(pFeatureOut)    
-                lID_polygon = lID_polygon + 1
+                pGeometry_intersect = pGeometry_new.Intersection(pGeometry_base)   
+                pGeometrytype_intersect = pGeometry_intersect.GetGeometryName()
+                if pGeometrytype_intersect == 'POLYGON':  
+                    pFeatureOut.SetGeometry(pGeometry_intersect)
+                    pFeatureOut.SetField("polygonid", lID_polygon)         
+                    pFeatureOut.SetField("runoff_diff", runoff_diff)    
+                    pLayerOut.CreateFeature(pFeatureOut)    
+                    lID_polygon = lID_polygon + 1
+                else:
+                    print('pGeometrytype_intersect:', lID_polygon, pGeometrytype_intersect)
     
     #close files
     pDataset_base = None
     pDataset_new = None
+    end_time = datetime.now()
+    # get difference
+    delta = end_time - start_time
+    
+    sec = delta.total_seconds()
+    print('difference in seconds:', sec)
+    
+    min = sec / 60
+    print('difference in minutes:', min)
     
     return None
 
